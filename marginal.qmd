@@ -1,0 +1,104 @@
+---
+title: "計量経済学の課題用テンプレート"
+subtitle: "サブタイトル"
+author: "氏名（学籍番号）"
+date: today
+execute: 
+  echo: true
+  warning: false
+  message: true
+format: 
+  pdf:
+    fig-width: 5
+    fig-height: 3
+    number-sections: true
+    include-in-header:
+      - text: \setlength{\parindent}{1em}
+pdf-engine: lualatex
+documentclass: ltjsarticle 
+lang: ja
+---
+
+
+
+```{r}
+# データセットの作成
+set.seed(123)
+n <- 100
+x1 <- rnorm(n)
+x2 <- rnorm(n)
+X3 <- x1 * x2  # 交差項
+
+# yを生成
+y <- 2 + 3 * x1 + 4 * x2 + 5 * X3 + rnorm(n)
+
+data <- data.frame(y, x1, x2, X3)
+
+# モデルの適合
+model <- lm(y ~ x1 + x2 + X3, data = data)
+summary(model)
+
+
+```
+
+
+
+```{r}
+calculate_marginal_effect_with_conf <- function(model, var1, interaction_term, 
+                                                values_var2, conf_level = 0.95){
+  # モデルの係数を取得
+  coef <- coef(model)
+  
+  # var1の係数と交差項の係数を取得
+  beta1 <- coef[var1]
+  beta_interaction <- coef[interaction_term]
+  
+  # 限界効果を計算
+  marginal_effect <- beta1 + beta_interaction * values_var2
+  
+  # 新しいデータフレームを作成
+  new_data <- data.frame(x1 = rep(1, length(values_var2)),  # x1を固定
+                         x2 = values_var2,                 # x2は変動
+                         X3 = 1 * values_var2)             # X3 = x1 * x2
+  
+  # 予測値と標準誤差を含む信頼区間を計算
+  predictions <- predict(model, newdata = new_data, se.fit = TRUE)
+  
+  # 信頼区間を調整
+  critical_value <- qnorm(1 - (1 - conf_level) / 2)
+  upper_conf <- marginal_effect + critical_value * predictions$se.fit
+  lower_conf <- marginal_effect - critical_value * predictions$se.fit
+  
+  return(list(marginal_effect = marginal_effect, 
+              upper_conf = upper_conf, 
+              lower_conf = lower_conf))
+}
+
+# x2の範囲での限界効果と信頼区間を計算
+values_var2 <- seq(min(data$x2), max(data$x2), length.out = 100)
+results <- calculate_marginal_effect_with_conf(model, "x1", "X3", values_var2)
+marginal_effects <- results$marginal_effect
+upper_conf <- results$upper_conf
+lower_conf <- results$lower_conf
+
+# 限界効果と信頼区間を含むデータフレームを作成
+df <- data.frame(x2 = values_var2,
+                 marginal_effect = marginal_effects,
+                 upper_conf = upper_conf,
+                 lower_conf = lower_conf)
+
+```
+
+
+
+```{r}
+library(ggplot2)
+
+# ggplotを使ったプロット
+ggplot(df, aes(x = x2, y = marginal_effect)) +
+  geom_line(color = "blue") +  # 限界効果の直線
+  geom_ribbon(aes(ymin = lower_conf, ymax = upper_conf), 
+              fill = "lightblue", alpha = 0.5) +  # 信頼区間のシェード
+  labs(x = "x2", y = "Marginal Effect of x1")    # ラベルの設定
+```
+

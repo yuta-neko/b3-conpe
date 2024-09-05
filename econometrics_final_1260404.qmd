@@ -1,0 +1,487 @@
+---
+title: "期末レポート"
+subtitle: "人口動態と経済発展"
+author: "宇畑優太（1260404）"
+date: today
+execute: 
+  echo: false
+  warning: false
+  message: false
+format: 
+  pdf:
+    number-sections: true
+    include-in-header:
+      - text: \setlength{\parindent}{1em}
+pdf-engine: lualatex
+documentclass: ltjsarticle 
+lang: ja
+---
+
+
+
+```{r global_option}
+#| include: false
+## PDF に出力する際は cairo を使用する
+if (knitr::is_latex_output()) {
+  knitr::opts_chunk$set(dev = "cairo_pdf")
+}
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+pacman::p_load(tidyverse, 
+               broom, 
+               coefplot, 
+               texreg,
+               interplot)
+## 図のなかで日本語を使えるようにする
+## 大学PCを利用：Windows を想定
+## フォントの設定はお好みで
+## （Unix/Linux ではIPAexフォントのインストールが必要かも）
+if (.Platform$OS.type == "windows") { 
+  if (require(fontregisterer)) {
+    my_font <- "Yu Gothic"
+  } else {
+    my_font <- "Japan1"
+  }
+} else if (capabilities("aqua")) {
+  my_font <- "HiraginoSans-W3"
+} else {
+  my_font <- "IPAexGothic"
+}
+
+theme_set(theme_gray(base_size = 9,
+                     base_family = my_font))
+```
+
+# RQ
+
+私のRQは「少子高齢化が進む日本社会で、経済成長を続けるにはどうすれば良いのか」である。日本は今後、さらに高齢化が進み、労働の担い手となる現役世代の割合が大きく減少することが予想される。その対抗策として、市民を街の中心に集めることで都市の発展を目指すコンパクトシティ構想が一部の地方で提唱され、実施されている。では実際に、この政策が経済の発展にいくら寄与するのだろうか。この疑問に答えることで、日本の高齢化社会とコンパクトシティ構想の行末を考察し、今後の日本が行うべき政策の議論に貢献することを目指す。貢献できたならば、私は嬉しい。
+
+
+
+# 理論と仮説
+
+## RQに答えを与える理論
+
+RQに対する理論仮説は「労働者の割合が経済に与える影響は人口密度によって変化する」である。戦後、日本が高度経済成長できた理由の1つとして、総人口に占める労働人口の割合が多かったことが挙げられる(人口ボーナス期)。つまり、少子高齢化の逆。労働人口の割合が多ければ多いほど、労働者の所得はそのまま消費に回され、消費の使われたお金はまた所得につながるという好循環が発生し、経済の成長を促す。対して、労働者の割合が少ないのであれば、労働者の所得がそのまま消費に回されるのではなく、社会保障費等に使用されることで消費が減少し、経済の発展を阻害する。日本が過去30年以上にわたって停滞している原因も、少子高齢化社会で総人口に占める労働人口の割合が減少したからと説明できる。だが、経済の発展要因はそれだけではないはずである。日本全体が少子高齢化の傾向にある中で、東京、大阪、名古屋、福岡、京都、神戸、神奈川といった大都市もいまだ健在である。少なくとも、万博やオリンピックを開催する体力は残っているらしい。これらの自治体には人口密度が高いという共通点がある。世界に目を向けても、「大都市」と言われるような場所は軒並み人が密集している。以上のことから、総人口に占める労働人口の割合が経済に与える影響は、人口密度によって変化するのではないだろうか。
+
+## 作業仮説
+
+今回の分析では2つの作業仮説を対象にする。操作化が異なるので、別々に説明する。
+
+- 可住面積当たりの人口密度は、労働者の割合が県内総生産額に与える影響を変化させる。
+
+人が密集して入るかの尺度には可住面積あたりの人口密度を使う。一般的には、人口密度は人数/面積で求められることが多いが、今回は可住面積で割った。ただの面積で人口密度を計算した場合、当然ではあるが、面積と人口が等しい場合は同じ値になる。つまり、人が1箇所に集まっている状態と、平野に均等に散らばっている状態でも、同じ値で出てしまう。これは現実を正確に反映しているとは言い難い。
+
+労働者の割合を表す尺度には、総人口に占める生産年齢人口(15~64歳)の割合を使う。生産年齢人口とは、労働の中核的な担い手として経済に活力を生み出す存在と定義されていることから、主に彼らが彼らが労働の担い手として所得を得て消費を行っていることは想像に難くない。
+
+経済の発展度合いを表す尺度には県内総生産額を使う。GDPは、一定期間内に国内で生み出された財・サービスの付加価値の合計額をさし、経済規模を表す指標である。経済規模が大きい国は一般的に経済が発展した国とみなされることが多い。
+今回はこれの、都道府県別のGDPを使う。
+
+- 可住面積当たりの人口密度は、労働者の割合が一人当たり所得に与える影響を変化させる。
+
+経済の発展度合い表す別の尺度として一人当たり所得を使う。一人当たりの所得が大きいということは個々人が豊かであることの証左であり、一人一人に経済的な余裕がおるのならば、それも経済が発展していると言えるのではないか。
+
+
+
+# 方法
+
+## データ
+
+今回、分析に使うデータは"1260404.csv"である。このデータは都道府県ごとの総人口（人）、労働人口（人）、可住面積（ha）、県内総生産額（百万円）の記録が3年分入っている。元データは[教育用標準データセット](https://www.nstac.go.jp/use/literacy/ssdse/){target="_blank"}を利用した。SSDSE-Eの3年分のデータを連結し、今回の分析に必要な変数以外を消した。変数名もrが読み込めるように変更している。
+
+
+
+
+```{r}
+D <- read.csv("data/1260404.csv")
+```
+
+データの中の変数を確認する。
+@tbl-smry
+について、tpopは総人口(人)を、wpopは労働人口(人)を、pop_areaは可住面積(ha)を、gdpは県内総生産額(百万円)を、incomeは一人当たり県民所得(千円)それぞれ表している。
+各変数の値について、かなり大きい値で記録されていることがわかる。分析結果の解釈をしやすくするために変数変換を行なったものが
+@tbl-smryc
+である。今回の分析で使う変数も用意した。tgdpは県内総生産額(兆円)を、wdensは総人口に占める労働者の割合(%)
+を、pdensは人口密度(千人/km^2)を、mincomeは一人当たり所得(百万円)を指している。
+
+
+@fig-wdens-gdp
+で労働者の割合と県内総生産額の関係を、
+@fig-pdens-gdp
+で人口密度と県内総生産額の関係を、
+@fig-wdens-mincome
+で労働者の割合と一人当たり所得の関係を、
+@fig-pdens-mincome
+で人口密度と一人当たり所得の関係を、それぞれ散布図で確認する。
+
+@fig-wdens-gdp
+@fig-pdens-gdp
+@fig-wdens-mincome
+@fig-pdens-mincome
+の全ての図で、直線が右肩上がりになっていることが見て取れる。
+```{r}
+#| label: tbl-smry
+#| tbl-cap: "各変数の基本的な統計量"
+summary(D)
+```
+
+```{r}
+D <- D |> 
+  mutate(tgdp = gdp / 1e6,　#単位を兆円にした
+         wdens = (wpop/ tpop) * 100,#総人口に占める生産年齢人口の割合を求め、単位を%にした
+         pdens = (tpop / 1000) / (pop_area / 100),#可住面積あたりの人口密度を求め、単位を千人/km^2にした
+         mincome = income / 1000) |> #単位を百万円にした
+  dplyr::select(mincome, tgdp,wdens,pdens)
+```
+
+
+
+
+```{r}
+#| label: tbl-smryc
+#| tbl-cap: "分析で使う変数の基本的な統計量"
+summary(D)
+```
+
+```{r}
+#| label: fig-wdens-gdp
+#| fig-cap: "労働者の割合と県内総生産の関係"
+plot_wdens_gdp <- ggplot(D, aes(x = wdens, y = tgdp)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "労働者の割合(%)", y = "県内総生産額(兆円)")
+plot(plot_wdens_gdp)
+```
+
+```{r}
+#| label: fig-pdens-gdp
+#| fig-cap: "人口密度と県内総生産の関係"
+plot_pdens_gdp <- ggplot(D, aes(x = pdens, y = tgdp)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "人口密度(千人/km^2)", y = "県内総生産額(兆円)")
+plot(plot_pdens_gdp)
+```
+
+
+```{r}
+#| label: fig-wdens-mincome
+#| fig-cap: "労働者の割合と所得の関係"
+plot_wdens_mincome <- ggplot(D, aes(x = wdens, y = mincome)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "労働者の割合(%)", y = "一人当たり所得(百万円)")
+plot(plot_wdens_mincome)
+```
+
+```{r}
+#| label: fig-pdens-mincome
+#| fig-cap: "人口密度と所得の関係"
+plot_pdens_mincome <- ggplot(D, aes(x = pdens, y = mincome)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "人口密度(千人/km^2)", y = "一人当たり所得(百万円)")
+plot(plot_pdens_mincome)
+```
+
+## 分析方法
+
+
+今回の分析で推定する回帰モデルは以下の通りである。
+$$
+\begin{aligned}
+& Y_i \sim \mbox{Normal}(\gamma_0 + \gamma_1  X_i + \gamma_2  Z_i + \gamma_3  X_i Z_i,\sigma)\\
+&\leftrightarrow \\
+&  Y_i \sim \mbox{Normal}((\gamma_0 + \gamma_2  Z_i )+  (\gamma_1 + \gamma_3 Z_i)X_i, \sigma) \\
+&\leftrightarrow \\
+& Y_i \sim \mbox{Normal}(\beta_0 + \beta_1 X_i,\sigma) \\
+\end{aligned}
+$$
+YはGDPと一人当たり所得、Xは労働者の割合、Zは人口密度とする。みてわかるように、これは調整変数Z（人口密度）を含む重回帰式であり、YをXとZとXZに回帰する。危険率は5%。
+
+説明変数を中心化し、回帰分析で$\gamma_k (k=0,1,2,3)$を推定した結果が
+@tbl-5
+である。この表からが以下のことが言える。
+
+- 人口密度が平均かつ、労働者の割合も平均のとき
+
+県内総生産額は9.16兆円、一人当たり所得は2.88(百万円)であると予想される。
+
+- 人口密度が平均のときに労働者の割合(%)が1ポイント上昇する場合
+
+県内総生産額は1.70兆円、一人当たり所得は0.08(百万円)それぞれ上昇することが期待される。
+
+```{r}
+fit_tgdp <- lm(tgdp ~ wdens * pdens,#説明変数を中心化しなかったときの分析
+   data = D)
+fit_mincome <- lm(mincome ~ wdens * pdens,#説明変数を中心化しなかったときの分析
+   data = D)
+D <- D |> 
+  mutate(wdens_c = wdens - mean(wdens),
+         pdens_c = pdens - mean(pdens))　#ここで中心かをした
+fit_tgdp_c <- lm(tgdp ~ wdens_c * pdens_c, #説明変数を中心化したときの分析
+            data = D)
+fit_mincome_c <- lm(mincome ~ wdens_c * pdens_c, #説明変数を中心化したときの分析
+            data = D)
+```
+
+
+```{r}
+#| include: false
+tidy(fit_tgdp)#説明変数を中心化しなかったときの分析結果。図を作る時に役立った。
+tidy(fit_mincome)
+
+```
+
+
+
+```{r}
+#| results: 'asis'
+res <- list(fit_tgdp_c,fit_mincome_c)
+texreg(res,
+       stars = NULL,
+       label = "tbl-5",
+       caption = "説明変数を中心化したときの分析結果",
+       caption.above = TRUE,
+       custom.model.names = c("県内総生産額(兆円)","一人当たり所得(百万円)"), 
+       custom.coef.name = c("切片",
+                             "労働者の割合(%)",
+                             "人口密度(千人/km^2)",
+                             "労働者の割合 x 人口密度"),
+       custom.gof.names = c("R^2",
+                            "自由度決定済みR^2",
+                            "観測数"),
+       custom.note = "注:括弧内は標準偏差")
+```
+
+
+# 分析結果の解釈
+
+調整変数たる人口密度の平均値が
+`r round(mean(D$pdens),2)`
+であり、標準偏差が
+`r round(sd(D$pdens),2)`
+だった。
+人口密度の値が「平均及び平均±標準偏差」の場合について、回帰直線を求めることにする。
+
+```{r}
+mcpd <- mean(D$pdens)
+scpd <- sd(D$pdens)
+```
+
+## 応答変数がGDPの場合
+
+調整変数Z(人口密度)の値が代表的な値を取ったときの切片と傾きについて記述したものが
+@tbl-mdtable-t
+である。また、これらを図示したものが
+@fig-plot-t
+である。人口密度が「平均-標準偏差」の回帰直線はほぼ横ばいであるが、その他2つの直線は右肩上がりになっている。また、人口密度が「平均」のときに比して、「平均+標準偏差」のときの方が傾きが大きいことが見て取れる。
+@fig-marginal-t
+は限界効果を可視化したものであり、95%信頼区間も示した。直線は右肩上がりで、全範囲で統計的優位であることがわかる。よって、人口ボーナスが県内総生産額に与える影響は、人口密度によって変化することがわかる。
+
+
+
+```{r}
+#| include: false
+round(intercept1 <-                #表を作るに当たって、数値を確認した
+   coef(fit_tgdp)[1] +  
+   coef(fit_tgdp)[3] * (mcpd - scpd),2)
+round(slope1 <- 
+   coef(fit_tgdp)[2] +
+   coef(fit_tgdp)[4] * (mcpd - scpd),2)
+
+round(intercept2 <- 
+   coef(fit_tgdp)[1] +  
+   coef(fit_tgdp)[3] * (mcpd + scpd),2)
+round(slope2 <- 
+   coef(fit_tgdp)[2] + 
+   coef(fit_tgdp)[4] * (mcpd + scpd),2)
+
+round(intercept3 <- 
+   coef(fit_tgdp)[1] +  
+   coef(fit_tgdp)[3] * (mcpd),2)
+round(slope3 <- 
+   coef(fit_tgdp)[2] + 
+   coef(fit_tgdp)[4] * (mcpd),2)
+```
+
+
+
+
+
+
+
+| 平均-標準偏差      | 平均      | 平均+標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $-7.17$ | $-87.35$ | $-167.53$ |
+| $0.22$ | $1.7$ | $3.19$ |
+
+: 上段が切片、下段が傾きである。 {#tbl-mdtable-t}
+
+
+
+
+```{r}
+#| label: fig-plot-t
+#| fig-cap: "複数の散布図を描いた"
+plot_t <- ggplot(D, aes(x = wdens, y = tgdp)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = intercept1, slope = slope1,
+              linetype = "dashed") +
+  geom_abline(intercept = intercept2, slope = slope2) + 
+  geom_abline(intercept = intercept3, slope = slope3,
+              linetype = "dotted")+
+  ylim(0,120) +
+  labs(x = "労働者の割合(%)", y = "県内総生産額(兆円)") +
+  geom_text(label = "(人口密度：平均 - 標準偏差)", 
+            x = 63, y = 0, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 標準偏差)", 
+            x = 62, y = 50, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 64, y = 28, family = my_font)
+plot(plot_t)
+```
+
+
+
+
+```{r}
+#| label: fig-marginal-t
+#| fig-cap: "限界効果の可視化"
+
+marginal_t <- interplot(m = fit_tgdp,
+                   var1 = "wdens",
+                   var2 = "pdens") +
+  labs(x = "人口密度(千人/km^2)", 
+       y = "労働者の割合が総生産額に与える影響")
+plot(marginal_t)
+```
+
+
+
+
+
+
+
+
+## 応答変数が所得の場合
+
+調整変数Z(人口密度)の値が代表的な値を取ったときの切片と傾きについて記述したものが
+@tbl-mdtable-m
+である。また、これらを図示したものが
+@fig-plot-m
+である。人口密度が「平均-標準偏差」の回帰直線はごくわずかに右肩上がりなっているが、人口密度が「平均」のときの方が傾きが大きい。また、人口密度が「平均」のときに比して、「平均+標準偏差」のときの方が傾きが大きいことが見て取れる。
+@fig-marginal-m
+は限界効果を可視化したものであり、95%信頼区間も示した。直線は右肩上がりで、全範囲で統計的優位であることがわかる。よって、人口ボーナスが一人当たり所得に与える影響は、人口密度によって変化することがわかる。
+```{r}
+#| include: false
+round(intercept1 <- #表を作るに当たって、数値を確認した
+   coef(fit_mincome)[1] +  
+   coef(fit_mincome)[3] * (mcpd - scpd),2)
+round(slope1 <- 
+   coef(fit_mincome)[2] +
+   coef(fit_mincome)[4] * (mcpd - scpd),2)
+
+round(intercept2 <- 
+   coef(fit_mincome)[1] +  
+   coef(fit_mincome)[3] * (mcpd + scpd),2)
+round(slope2 <- 
+   coef(fit_mincome)[2] + 
+   coef(fit_mincome)[4] * (mcpd + scpd),2)
+
+round(intercept3 <- 
+   coef(fit_mincome)[1] +  
+   coef(fit_mincome)[3] * (mcpd),2)
+round(slope3 <- 
+   coef(fit_mincome)[2] + 
+   coef(fit_mincome)[4] * (mcpd),2)
+```
+
+
+
+
+
+
+
+| 平均-標準偏差      | 平均      | 平均+標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $1.84$ | $-1.65$ | $-5.14$ |
+| $0.02$ | $0.08$ | $0.14$ |
+
+: 上段が切片、下段が傾きである。 {#tbl-mdtable-m}
+
+
+
+
+```{r}
+#| label: fig-plot-m
+#| fig-cap: "複数の散布図を描いた"
+plot_m <- ggplot(D, aes(x = wdens, y = mincome)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = intercept1, slope = slope1,
+              linetype = "dashed") +
+  geom_abline(intercept = intercept2, slope = slope2) + 
+  geom_abline(intercept = intercept3, slope = slope3,
+              linetype = "dotted")+
+  ylim(0,6) +
+  labs(x = "労働者の割合(%)", y = "一人当たり所得(百万円)") +
+  geom_text(label = "(人口密度：平均 - 標準偏差)", 
+            x = 63, y = 2, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 標準偏差)", 
+            x = 62, y = 4, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 64, y = 3, family = my_font)
+plot(plot_m)
+```
+
+
+
+
+
+
+```{r}
+#| label: fig-marginal-m
+#| fig-cap: "限界効果の可視化"
+marginal_m <- interplot(m = fit_mincome,
+                   var1 = "wdens",
+                   var2 = "pdens") +
+  labs(x = "人口密度(千人/km^2)", 
+       y = "労働者の割合が所得に与える影響")
+plot(marginal_m)
+```
+
+
+
+
+# 結論
+
+人口密度(千人/km^2)が上昇するにつれて、労働者の割合が県内総生産額及び一人当たり所得に与える影響は大きくることが
+@fig-marginal-t
+と
+@fig-marginal-m
+から見て取れる。言い換えると、労働者の割合が経済に与える影響は、人口密度が低い場合には、相対的に小さく、人口密度が高い場合には相対的に大きくなることがわかる。よって、人口密度によって労働者の割合が経済に与える影響は変化すると言える。以上の分析から、地方レベルでは中心街に、国レベルでは東京をはじめとする大都市に人を密集させることで、少子高齢化社会でも経済成長を実現できるのではないだろうか。
+
+結果として、東京一極集中を支持することになった。しかし、今回の分析では人口の一極集中による弊害等は考慮できていない。たとえば交通公害や災害への脆弱性。今後の課題としては、こうした弊害が経済に与える悪影響についての議論が必要である。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1380 @@
+---
+title: "計量経済学の課題用テンプレート"
+subtitle: "サブタイトル"
+author: "氏名（学籍番号）"
+date: today
+execute: 
+  echo: true
+  warning: false
+  message: true
+format: 
+  pdf:
+    fig-width: 5
+    fig-height: 3
+    number-sections: true
+    include-in-header:
+      - text: \setlength{\parindent}{1em}
+pdf-engine: lualatex
+documentclass: ltjsarticle 
+lang: ja
+---
+
+# 準備
+
+```{r global_option}
+#| include: false
+## PDF に出力する際は cairo を使用する
+if (knitr::is_latex_output()) {
+  knitr::opts_chunk$set(dev = "cairo_pdf")
+}
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+pacman::p_load(tidyverse, 
+               broom, 
+               coefplot, 
+               texreg,
+               interplot,
+               dplyr,
+               magrittr,
+               plm,
+               readxl)
+## 図のなかで日本語を使えるようにする
+## 大学PCを利用：Windows を想定
+## フォントの設定はお好みで
+## （Unix/Linux ではIPAexフォントのインストールが必要かも）
+if (.Platform$OS.type == "windows") { 
+  if (require(fontregisterer)) {
+    my_font <- "Yu Gothic"
+  } else {
+    my_font <- "Japan1"
+  }
+} else if (capabilities("aqua")) {
+  my_font <- "HiraginoSans-W3"
+} else {
+  my_font <- "IPAexGothic"
+}
+
+theme_set(theme_gray(base_size = 9,
+                     base_family = my_font))
+```
+
+
+```{r}
+#dir.create("data")
+```
+
+
+
+
+
+
+
+# データの整形
+
+
+## 説明変数
+
+まずはデータを読み込む．
+```{r}
+data_pop_density <- read.csv("data/X/FEH_00200502_240810184536.csv",
+                             fileEncoding="cp932")
+```
+
+
+分析に使う変数のみを選び，変数の名前を変更する.
+```{r}
+data_pop_density_tidy <- data_pop_density|> 
+  dplyr::select(統計名.,X,X.8,X.30) |> 
+  dplyr::rename(year = 統計名.,
+                area = X,
+                pop_dens = X.8,
+                dependency_ratio = X.30) |> 
+  
+  #area = 0は全国を表すの
+  #今回はいらないので除去する
+  subset(area!=0) |> 
+  
+  #必要な年代の変数のみを取り出す
+  dplyr::slice(-1:-998) |> 
+  dplyr::slice(-1176:-1269)
+```
+data_pop_densityには**可住地面積１km2当たり人口密度【人】**と**従属人口指数**のデータが47都道府県 $\times$ 25(1996~2020)=1175入っている
+
+- 従属人口指数とは，100人の生産年齢人口当たりの非生産年齢人口の数を表したのもである
+
+
+
+以下，各年の総人口と生産年齢人口のデータを整形し，保存する
+
+NAの行は地域ブロックを区切るために挿入されたものである．分析に使う変数に欠損値があったわけではない．
+```{r}
+df1996 <- read_excel("data/X/1996.xls") |>  #データの読み込み
+  dplyr::select(!c(...6,...12)) |>          #不要な変数の除去
+  na.omit() |>                              #NAの行を除く
+  dplyr::slice(-1) |>                       #最初の行は全国区
+                                            #変数の改名
+  set_colnames(value = c("","total_pop","","product_pop")) |> 
+  dplyr::select("total_pop","product_pop")   #変数の選択
+```
+
+
+
+
+
+```{r}
+df1997 <- read_excel("data/X/1997.xls") |>      #データの読み込み
+  na.omit() |>                                  #NAの行を消す
+                                                #変数の改名
+  set_colnames(value = c("","","total_pop","","product_pop","")) |> 
+  dplyr::select("total_pop","product_pop") #変数の選択
+```
+
+
+```{r}
+#データの読み込み
+df1998 <- read_excel("data/X/1998.xls") |>        
+  #NAの行のz除去
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("","","total_pop","","product_pop")) |> 
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop",)
+```
+
+
+```{r}
+#データの読み込み
+df1999 <- read_excel("data/X/1999.xls") |> 
+  #NAの行の削除
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+#データの読み込み
+df2000 <- read_excel("data/X/2000.xlsx")|> 
+  #必要な変数の選択
+  dplyr::select(...6,c(...10:...19)) |> 
+  #NAの行の削除
+  na.omit() |> 
+  #不要な列の削除
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  #変数をnumericに変換
+  mutate(across(a:j,as.numeric)) |> 
+  #product_popを作る(ないので)
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+#データの読み込み
+df2001 <- read_excel("data/X/2001.xls") |> 
+  #NAの行の除去
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+```{r}
+#データの読み込む
+df2002 <- read_excel("data/X/2002.xls") |> 
+  #NAの行の削除
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("NA" , "NA" ,"total_pop", 
+                         "NA" ,"product_pop"))|>
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+```{r}
+#データの読むこみ
+df2003 <- read_excel("data/X/2001.xls") |> 
+  #NAの行を削除
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  #必要な変数の除去
+  dplyr::select("total_pop","product_pop")
+```
+
+```{r}
+#データの読み込み
+df2004 <- read_excel("data/X/2001.xls") |> 
+  #NAの行の削除
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+
+
+
+
+```{r}
+#データの読み込み
+df2005 <- read_excel("data/X/2000.xlsx")|> 
+  #product_popを作るのに必要な変数を選ぶ
+  dplyr::select(...6,c(...10:...19)) |> 
+  #NAの行の削除
+  na.omit() |> 
+  #不要な列の削除
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  #変数をnumericに変換
+  mutate(across(a:j,as.numeric)) |> 
+  #product_popを作る
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+
+```{r}
+#データの読み込み
+df2006 <- read_excel("data/X/2001.xls") |> 
+  #NAの行の除去
+  na.omit() |> 
+  #変数の改名
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+#データの読み込み
+df2007 <- read_excel("data/X/2007.xlsx") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な列の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #必要な変数の選択
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+```{r}
+#データの読み込み
+df2008 <- read_excel("data/X/2008.xls") |> 
+  #必要な変数のみを選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+#データの読み込み
+df2009 <- read_excel("data/X/2009.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+#デーらたの読み込み
+df2010 <- read_excel("data/X/2000.xlsx")|> 
+  #product_popの計算に必要な変数の選択
+  dplyr::select(...6,c(...10:...19)) |> 
+  #NAの行の削除
+  na.omit() |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  #変数をas.numericに変換
+  mutate(across(a:j,as.numeric)) |> 
+  #product_popの作成
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+#データの読み込み
+df2011 <- read_excel("data/X/2011.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な列の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+#データの読み込み
+df2012 <- read_excel("data/X/2012.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な列の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+#データの読み込み
+df2013 <- read_excel("data/X/2013.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+```{r}
+#データの読み込み
+df2014 <- read_excel("data/X/2014.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-19)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+```{r}
+#データの読み込む
+df2015 <- read_excel("data/X/2000.xlsx")|> 
+  #product_popの計算に必要な変数の選択
+  dplyr::select(...6,c(...10:...19)) |> 
+  #NAの行の削除
+  na.omit() |>
+  #不要な行の削除
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  #変数をnumericにする
+  mutate(across(a:j,as.numeric)) |> 
+  #product_popを計算する
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+#データの読み込み
+df2016 <- read_excel("data/X/2016.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+#データの読み込み
+df2017 <- read_excel("data/X/2017.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+
+```{r}
+#データの読み込み
+df2018 <- read_excel("data/X/2018.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+
+```{r}
+#データの読み込み
+df2019 <- read_excel("data/X/2019.xls") |> 
+  #必要な変数の選択
+  dplyr::select("1","3") |> 
+  #不要な行の削除
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+
+
+
+```{r}
+#データの読み込み
+df2020 <- read_excel("data/X/2000.xlsx")|> 
+  #product_popの計算に必要な変数の選択
+  dplyr::select(...6,c(...10:...19)) |> 
+  #NAの行の削除
+  na.omit() |> 
+  #NAの行の削除
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  #変数の改名
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |>
+  #変数をnumericに変換する
+  mutate(across(a:j,as.numeric)) |> 
+  #product_popを計算する
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  #必要な変数の選択
+  dplyr::select("total_pop","product_pop")
+```
+
+
+最後に，各年のデータを結合する．
+
+```{r}
+df <- rbind(
+  df1996,df1997,df1998,df1999,df2000,
+  df2001,df2002,df2003,df2004,df2005,
+  df2006,df2007,df2008,df2009,df2010,
+  df2011,df2012,df2013,df2014,df2015,
+  df2016,df2017,df2018,df2019,df2020)
+```
+
+
+可住面積あたりの人口密度と従属人口指数が入ったデータと総人口と生産年齢人口が入ったデータを結合し，説明変数にしようするデータが揃った．
+```{r}
+data_X<- cbind(data_pop_density_tidy,df)
+```
+
+## 応答変数
+
+以下，データセットから正式系列とされている年のデータのみを抽出し，調査年ごとにdfに格納する
+
+```{r}
+#データの読み込み
+df_income_1 <- read_excel("data/Y/one_income_1.xlsx")
+
+df_gdp_1 <- read_excel("data/Y/total_gdp_1.xlsx")
+
+#不要な行を消す
+df_income_1 <- df_income_1 |> 
+  dplyr::slice(c(-1:-5),c(-53:-78)) |> 
+  set_colnames(c("","","","2011","2012",
+                 "2013","2014","2015","2016","2017",
+                 "2018","2019","2020"))
+
+
+df_gdp_1 <- df_gdp_1 |> 
+  dplyr::slice(c(-1:-5),c(-53:-78)) |> 
+  set_colnames(c("","","","2011","2012",
+                 "2013","2014","2015","2016","2017",
+                 "2018","2019","2020"))
+
+#年観測年ごとにデータをまとめる
+y2020 <- cbind(df_income_1$"2020",df_gdp_1$"2020")
+y2019 <- cbind(df_income_1$"2019",df_gdp_1$"2019")
+y2018 <- cbind(df_income_1$"2018",df_gdp_1$"2018")
+y2017 <- cbind(df_income_1$"2017",df_gdp_1$"2017")
+y2016 <- cbind(df_income_1$"2016",df_gdp_1$"2016")
+y2015 <- cbind(df_income_1$"2015",df_gdp_1$"2015")
+y2014 <- cbind(df_income_1$"2014",df_gdp_1$"2014")
+y2013 <- cbind(df_income_1$"2013",df_gdp_1$"2013")
+y2012 <- cbind(df_income_1$"2012",df_gdp_1$"2012")
+y2011 <- cbind(df_income_1$"2011",df_gdp_1$"2011")
+
+```
+
+```{r}
+#データの読み込み
+df_income_2 <- read_excel("data/Y/one_income_2.xlsx")
+
+df_gdp_2 <- read_excel("data/Y/total_gdp_2.xlsx")
+
+#不要な行の削除
+df_income_2 <- df_income_2 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79)) |> 
+  set_colnames(c("","","","2006","2007",
+                 "2008","2009","2010","2011","2012",
+                 "2013","2014","2015","2016","2017","2018"))
+
+df_gdp_2 <- df_gdp_2 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79)) |> 
+  set_colnames(c("","","","2006","2007",
+                 "2008","2009","2010","2011","2012",
+                 "2013","2014","2015","2016","2017","2018"))
+
+#観測年ごとにデータを格納する
+y2010 <- cbind(df_income_2$"2010",df_gdp_2$"2010")
+y2009 <- cbind(df_income_2$"2009",df_gdp_2$"2009")
+y2008 <- cbind(df_income_2$"2008",df_gdp_2$"2008")
+y2007 <- cbind(df_income_2$"2007",df_gdp_2$"2007")
+y2006 <- cbind(df_income_2$"2006",df_gdp_2$"2006")
+
+```
+
+
+```{r}
+#データの読み込み
+df_income_3 <- read_excel("data/Y/one_income_3.xls")
+
+df_gdp_3 <- read_excel("data/Y/total_gdp_3.xls")
+
+#不要な行の削除
+df_income_3 <- df_income_3 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79))|> 
+  set_colnames(c("","","","2001","2002",
+                 "2003","2004","2005","2006","2007",
+                 "2008","2009","2010","2011","2012","2013","2014"))
+
+df_gdp_3 <- df_gdp_3 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79))|> 
+  set_colnames(c("","","","2001","2002",
+                 "2003","2004","2005","2006","2007",
+                 "2008","2009","2010","2011","2012","2013","2014"))
+
+#観測年ごとにデータを格納する
+y2005 <- cbind(df_income_3$"2005",df_gdp_3$"2005")
+y2004 <- cbind(df_income_3$"2004",df_gdp_3$"2004")
+y2003 <- cbind(df_income_3$"2003",df_gdp_3$"2003")
+y2002 <- cbind(df_income_3$"2002",df_gdp_3$"2002")
+y2001 <- cbind(df_income_3$"2001",df_gdp_3$"2001")
+
+```
+
+
+```{r}
+#データの読み込み
+df_income_4 <- read_excel("data/Y/one_income_4.xls")
+
+df_gdp_4 <- read_excel("data/Y/total_gdp_4.xls")
+
+#不要な行の削除
+df_income_4 <- df_income_4 |> 
+  dplyr::slice(c(-1:-5),c(-53:-75))|> 
+  set_colnames(c("","","","1996","1997",
+                 "1998","1999","2000","2001","2002",
+                 "2003","2004","2005","2006","2007","2008","2009"))
+
+
+df_gdp_4 <- df_gdp_4 |> 
+  dplyr::slice(c(-1:-5),c(-53:-75))|> 
+  set_colnames(c("","","","1996","1997",
+                 "1998","1999","2000","2001","2002",
+                 "2003","2004","2005","2006","2007","2008","2009"))
+
+#観測年ごとにデータを格納する
+y2000 <- cbind(df_income_4$"2000",df_gdp_4$"2000")
+y1999 <- cbind(df_income_4$"1999",df_gdp_4$"1999")
+y1998 <- cbind(df_income_4$"1998",df_gdp_4$"1998")
+y1997 <- cbind(df_income_4$"1997",df_gdp_4$"1997")
+y1996 <- cbind(df_income_4$"1996",df_gdp_4$"1996")
+```
+
+全ての調査年のdfが揃ったので結合する．変数名の変換も同時に行っておく．
+```{r}
+data_y <- rbind(
+  y1996,y1997,y1998,y1999,y2000,
+  y2001,y2002,y2003,y2004,y2005,
+  y2006,y2007,y2008,y2009,y2010,
+  y2011,y2012,y2013,y2014,y2015,
+  y2016,y2017,y2018,y2019,y2020)
+
+data_y <- data.frame(data_y) |> 
+  rename(income = X1,
+         gdp = X2)
+```
+
+
+
+
+
+
+# モデル
+
+固定効果 ( $\gamma_i$ )、時間効果 ( $\lambda_t$ )、および交差項を含むモデルは、次のように表現できる
+
+$$
+Y_{it} = \beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it} 
+$$
+
+ここで,
+
+-	 $Y_{it}$  は個体  i  の時点  t  における応答変数.
+
+-	 $X_{it}$  と  $Z_{it}$  は説明変数.
+
+-	 $(X_{it} \times Z_{it})$  は交差項.
+
+-	 $\alpha_i$  は都道府県効果.
+
+-	 $\lambda_t$  は時間効果.
+
+-	 $u_{it}$  は誤差項.
+
+
+また,
+
+- $Y_{it}$は経済状況を表す変数
+
+- $X_{it}$は生産年齢人口を表す変数
+
+- $Z_{it}$は人口密度を表す変数
+
+都道府県効果と時間効果を除去するための変数変換は以下の通りである．
+
+$$
+\begin{aligned}
+\dot{Y}_{it} =& Y_{it} -\bar{Y_{i}} - \bar{Y_{t}} + \bar{Y} \\
+&\ \\
+=& [\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}]\\ 
+&- \frac{1}{T}\sum_{t = 1}^{T}[\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}] \\
+&- \frac{1}{N}\sum_{i = 1}^{N}[\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}]\\
+&+ \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N}[\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}] \\
+&\ \\
+=& [\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it} ] \\ 
+&- [\beta_1 \frac{1}{T}\sum_{t = 1}^{T}X_{it} + \beta_2 \frac{1}{T}\sum_{t = 1}^{T}Z_{it} + \beta_3 \frac{1}{T}\sum_{t = 1}^{T}(X_{it} \times Z_{it}) + \frac{1}{T}\sum_{t = 1}^{T}\alpha_i + \frac{1}{T}\sum_{t = 1}^{T}\lambda_t + \frac{1}{T}\sum_{t = 1}^{T}u_{it} ] \\
+&- [\beta_1 \frac{1}{N}\sum_{i = 1}^{N} X_{it} + \beta_2 \frac{1}{N}\sum_{i = 1}^{N} Z_{it} + \beta_3 \frac{1}{N}\sum_{i = 1}^{N} (X_{it} \times Z_{it}) +  \frac{1}{N}\sum_{i = 1}^{N} \alpha_i + \frac{1}{N}\sum_{i = 1}^{N} \lambda_t + \frac{1}{N}\sum_{i = 1}^{N} u_{it} ] \\
+&+ [\beta_1 \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} X_{it} + \beta_2 \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} Z_{it} + \beta_3 \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} (X_{it} \times Z_{it}) \\
+&\ \ \ \ + \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} \alpha_i + \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} \lambda_t + \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} u_{it} ] \\
+&\ \\
+=& [\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it} ]\\ 
+&- [\beta_1 \bar{X_{i}} + \beta_2 \bar{Z_{i}} + \beta_3 \overline{(X_{i} \times Z_{i})} + \alpha_i + \bar{\lambda} + \bar{u_{i}}]\\
+&- [\beta_1 \bar{X_{t}} + \beta_2 \bar{Z_{t}} + \beta_3 \overline{(X_{t} \times Z_{t})} + \bar{\alpha} + \lambda_t + \bar{u_{t}} ] \\
+&+ [\beta_1 \bar{X} + \beta_2 \bar{Z} + \beta_3 \overline{(X \times Z)} + \bar{\alpha} + \bar{\lambda} + \bar{u}] \\
+&\ \\
+=&  \beta_1[X_{it} -  \bar{X_{i}} - \bar{X_{t}} +  \bar{X}]\\
+&+ \beta_2[Z_{it} - \bar{Z_{i}} - \bar{Z_{t}} +  \bar{Z}]\\
+& + \beta_3[(X_{it} \times Z_{it}) - \overline{(X_{i} \times Z_{i})} - \overline{(X_{t} \times Z_{r})} + \overline{(X \times Z)}]\\ 
+& + [\alpha_i - \alpha_i - \bar{\alpha} +  \bar{\alpha}] \\
+& + [\lambda_t - \bar{\lambda} - \lambda_t + \bar{\lambda}] \\
+& + [u_{it} - \bar{u_{i}} - \bar{u_{t}} +  \bar{u}]\\
+&\ \\
+=& \beta_1\dot{X}_{it} +  \beta_2\dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}\\
+\end{aligned}
+$$
+
+時間効果として考えられるものは，景気の変動である．所得やGDPは国の経済政策の効果に依存するこtは容易に想像できる．また，国が行う政策で特定の地域が優遇されるということも考えにくい．
+
+都道府県効果として考えられるものは，各都道府県の自治体が実施する経済政策や産業構造である．
+
+
+
+## 単位の確認
+
+今後の分析に使うものとして，総人口に占める生産年齢人口の割合の変数`pop_bon`と従属人口指数の逆数をとった変数`ratio_rec`を作った．
+```{r}
+#必要なデータの結合
+data <- cbind(data_X,data_y) |> 
+  #カンマの削除
+  mutate(across(year:gdp,~gsub(",","",.))) |> 
+  #変数をnumericに変換する
+  mutate(across(year:gdp,as.numeric)) |> 
+  mutate(pop_bon = product_pop/total_pop * 100,
+         ration_rec = 1/(dependency_ratio))
+```
+
+
+|変数|説明|単位|
+|---|---|---|
+|year|調査された年|一年|
+|area|調査対象の場所|都道府県|
+|pop_dens|可住地面積１km2当たり人口密度|人|
+|dependency_ratio|従属人口指数|(%)|
+|total_pop|各年，各都道府県の総人口|千人|
+|product_pop|各年，各都道府県の生産年齢人口|千人|
+|income|各年，各都道府県の一人当たり所得|千円|
+|gdp|各年，各都道府県の名目GDP|百万円|
+|pop_bon|総人口に占める生産年齢人口の比|(%)|
+|ratio_rec|従属人口指数の逆数|なし|
+
+可住地面積１km2当たり人口密度の従属人口指数のデータの出典は[e-Stat](https://www.e-stat.go.jp/stat-search/database?page=1&statdisp_id=0000010201)である
+
+総人口と生産年齢人口のデータの出典は総務省統計局の[各年10月1日現在人口](https://www.stat.go.jp/data/jinsui/2.html)である．
+
+gdpと所得のデータの出典は内閣府の[統計表(県民経済計算)](https://www.esri.cao.go.jp/jp/sna/data/data_list/kenmin/files/files_kenmin.html)である
+
+gdpと所得は正式系列のものを採用している
+
+詳細は内閣府の県民経済計算の[利用場の注意](https://www.esri.cao.go.jp/jp/sna/sonota/kenmin/kenmin_top.html)を参照
+
+
+## 変数変換
+
+dataの中身を確認する
+```{r}
+summary(data)
+```
+pop_dens，income，gdpの値が他の変数に比べて大きすぎる．分析結果の解釈をしやすくするために，単位変換を行う．また，yearとareaの値の後ろに0が余計についていたため，取り除く．
+
+```{r}
+data <- data |> 
+  mutate(gdp = gdp / 10^4,
+         income = income / 10,
+         pop_dens = pop_dens / 10^3,
+         year = (year / 10^6 )-0.1, 
+         area = area / 10^3)
+summary(data)
+```
+ここで，変数の単位を改めて確認する
+
+|変数|説明|単位|
+|---|---|---|
+|year|調査された年|一年|
+|area|調査対象の場所|都道府県|
+|pop_dens|可住地面積１km2当たり人口密度|千人|
+|dependency_ratio|従属人口指数|(%)|
+|total_pop|各年，各都道府県の総人口|千人|
+|product_pop|各年，各都道府県の生産年齢人口|千人|
+|income|各年，各都道府県の一人当たり所得|一万円|
+|gdp|各年，各都道府県の名目GDP|百億円|
+|pop_bon|総人口に占める生産年齢人口の比|(%)|
+|ratio_rec|従属人口指数の逆数|なし|
+
+
+
+変数変換を行う前に，交差項の変数を作っておく
+
+```{r}
+data <- data |> 
+  mutate(pop_bon_X_pop_dens = pop_bon * pop_dens,
+         ration_rec_X_pop_dens = ration_rec * pop_dens)
+```
+
+全平均
+```{r}
+all_mean <- data.frame(t(colMeans(data)))
+```
+
+tの平均
+```{r}
+t_mean <- matrix(NA,nrow = 47,ncol = 12)
+for(i in 1:47){
+  a <- data |> 
+    filter(area == i)
+  t_mean[i,] <- t(colMeans(a))
+}
+t_mean <- t_mean |> 
+  set_colnames(value = c(names(data)))
+t_mean <- data.frame(t_mean)
+```
+
+iの平均
+```{r}
+i_mean <- matrix(NA,nrow = 25,ncol = 12)
+for(t in 1:25){
+  a <- data |> 
+    filter(year == t+1995)
+  i_mean[t,] <- t(colMeans(a))
+}
+i_mean <- i_mean |> 
+  set_colnames(value = c(names(data)))
+i_mean <- data.frame(i_mean)
+```
+
+
+変数変換
+```{r}
+trans <- data.frame(matrix(NA,nrow = 1175,ncol = 12))
+r <- 0
+for(t in 1:25){
+  for(i in 1:47){
+    a <- data |> 
+  filter(area == i,
+         year == t+1995)
+    
+    b <- t_mean |> 
+      filter(area == i)
+    
+    c <- i_mean |> 
+      filter(year == t+1995)
+    
+    d <- all_mean
+    
+    x <-  a - b - c + d
+   r <- r + 1
+   
+   trans[r,] <- x
+  }
+}
+trans <- trans |> 
+  set_colnames(value = names(data))
+```
+
+変数変換後の統計量の確認
+```{r}
+summary(trans)
+```
+
+
+
+
+
+# 分析
+
+
+## 分析の実行
+
+lm関数を使って時間効果と都道府県効果と交差項を含んだモデルの分析を行う
+
+- モデル1
+
+$\dot{Y}_{it} = \beta_1 \dot{X}_{it} + \beta_2 \dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}$ ただし，$Y_{it}$は一人当たり所得，$X_{it}$は人口ボーナス度，$Z_{it}$は人口密度である
+
+```{r}
+model_1 <- lm(income ~ 0+pop_bon + pop_dens + pop_bon_X_pop_dens, data = trans)
+summary(model_1)
+```
+
+
+- モデル2
+
+$\dot{Y}_{it} = \beta_1 \dot{X}_{it} + \beta_2 \dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}$ ただし，$Y_{it}$は一人当たり所得，$X_{it}$は従属人口指数の逆数，$Z_{it}$は人口密度である
+
+```{r}
+model_2 <- lm(income ~ 0+ration_rec + pop_dens + ration_rec_X_pop_dens, data = trans)
+summary(model_2)
+```
+
+
+- モデル3
+
+$\dot{Y}_{it} = \beta_1 \dot{X}_{it} + \beta_2 \dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}$ ただし，$Y_{it}$は県内総生産額，$X_{it}$は人口ボーナス度，$Z_{it}$は人口密度である
+
+```{r}
+model_3 <- lm(gdp ~ 0+pop_bon + pop_dens + pop_bon_X_pop_dens, data = trans)
+summary(model_3)
+```
+
+
+- モデル4
+
+$\dot{Y}_{it} = \beta_1 \dot{X}_{it} + \beta_2 \dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}$ ただし，$Y_{it}$は県内総生産額，$X_{it}$は従属人口指数の逆数，$Z_{it}$は人口密度である
+
+```{r}
+model_4 <- lm(gdp ~ 0+ration_rec + pop_dens + ration_rec_X_pop_dens, data = trans)
+summary(model_4)
+```
+
+
+
+## 結果の可視化
+
+
+- 係数を表示する
+
+```{r}
+#| results: 'asis'
+res <- list(model_1,model_3)
+texreg(res,
+       stars = c(0.001, 0.01, 0.05),
+        digits = 3,
+       caption = "説明変数が生産年齢人口",
+       caption.above = TRUE,
+       custom.model.names = c("一人当たり所得(一万円)","県内総生産額(百億円)"), 
+       custom.coef.name = c("生産年齢人口の割合(%)",
+                             "人口密度(千人/km^2)",
+                             "生産年齢人口の割合 x 人口密度"),
+       custom.gof.names = c("R^2",
+                            "自由度決定済みR^2",
+                            "観測数"),
+       custom.note = "注:括弧内は標準偏差")
+```
+
+
+
+```{r}
+#| results: 'asis'
+res <- list(model_2,model_4)
+texreg(res,
+       stars = c(0.001, 0.01, 0.05),
+       digits = 3,
+       caption = "説明変数が従属人口指数の逆数",
+       caption.above = TRUE,
+       custom.model.names = c("一人当たり所得(一万円)","県内総生産額(百億円)"), 
+       custom.coef.name = c("従属人口指数の逆数",
+                             "人口密度(千人/km^2)",
+                             "従属人口指数の逆数 x 人口密度"),
+       custom.gof.names = c("R^2",
+                            "自由度決定済みR^2",
+                            "観測数"),
+       custom.note = "注:括弧内は標準偏差")
+```
+
+- 応答変数(GDPと一人当たり所得)の予測値を示す
+
+$$
+\begin{aligned}
+\text{model-1}\ &\\
+\hat{Y}_{it} &= 0.014{X}_{it} + 0.505{Z}_{it} + 0.003{(X_{it} 
+\cdot Z_{it})}\\
+&=0.505{Z}_{it} + (0.014 + 0.003{Z}_{it}){X}_{it}\\
+&\\
+\text{model-2}&\ \\
+\hat{Y}_{it} &= 31.069{X}_{it} + 0.794{Z}_{it} + 3.911{(X_{it} 
+\cdot Z_{it})}\\
+&=0.794{Z}_{it} + (31.069 + 3.911{Z}_{it}){X}_{it}\\
+&\\
+\text{model-3}&\ \\
+\hat{Y}_{it} &= 0.102{X}_{it} + 15.729{Z}_{it} -0.015{(X_{it} 
+\cdot Z_{it})}\\
+&=15.729{Z}_{it} + (0.102 -0.015{Z}_{it}){X}_{it}\\
+&\\
+\text{model-4}&\ \\
+\hat{Y}_{it} &= 38.752{X}_{it} + 15.184{Z}_{it} -6.779{(X_{it} 
+\cdot Z_{it})}\\
+&=15.184{Z}_{it} + (38.752 -6.779{Z}_{it}){X}_{it}\\
+\end{aligned}
+$$
+
+
+調整変数が代表的な値を取るときの切片と傾きを図示する
+```{r}
+#調整変数の10標準偏差
+sd(trans$pop_dens) * 10
+```
+
+
+
+
+```{r}
+sd <- 0.7229681
+
+0.505 * -sd
+
+0.014 + 0.003 * -sd
+```
+
+
+
+| 平均-10標準偏差      | 平均      | 平均+10標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $-0.365$ | $0$ | $0.36$5 |
+| $0.012$ | $0.014$ | $0.016$ |
+
+: model_1の切片と傾き
+
+
+```{r}
+#| fig-cap: "複数の回帰直線を描いた"
+plot_t <- ggplot(trans, aes(x = pop_bon, y = income)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = 0.36, slope = 0.016,
+              linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 0.014) + 
+  geom_abline(intercept = -0.36, slope = 0.012,
+              linetype = "dotted")+
+  ylim(-1,1) +
+  labs(x = "労働者の割合(%)", y = "一人当たり所得(一万円)") +
+  geom_text(label = "(人口密度：平均 - 10標準偏差)", 
+            x = 2, y = -0.5, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 10標準偏差)", 
+            x = 2, y = 0.5, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 2, y = -0.05, family = my_font)
+plot(plot_t)
+```
+
+
+
+
+
+```{r}
+sd <- 0.7229681
+
+0.794 *-sd
+
+31.069 + 3.911 * -sd
+```
+
+| 平均-標準偏差      | 平均      | 平均+標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $-0.574$ | $0$ | $0.574$ |
+| $28.241$ | $31.069$ | $33.896$ |
+
+: model_2の切片と傾き
+
+```{r}
+#| fig-cap: "複数の回帰直線を描いた"
+plot_t <- ggplot(trans, aes(x = ration_rec, y = income)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = 0.574, slope = 33.896,
+              linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 31.069) + 
+  geom_abline(intercept = -0.574, slope = 28.241,
+              linetype = "dotted")+
+  ylim(-1,1) +
+  labs(x = "従属人口指数の逆数", y = "一人当たり所得(一万円)") +
+  geom_text(label = "(人口密度：平均 - 10標準偏差)", 
+            x = 0.002, y = -0.6, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 10標準偏差)", 
+            x = 0.002, y = 0.8, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 0.002, y = -0.1, family = my_font)
+plot(plot_t)
+```
+
+
+
+
+
+
+
+
+```{r}
+sd <- 0.7229681
+
+15.729 * -sd
+
+0.102 - 0.015 * -sd
+```
+
+| 平均-標準偏差      | 平均      | 平均+標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $-11.372$ | $0$ | $11.371$ |
+| $0.113$ | $0.102$ | $0.091$ |
+
+: model_3の切片と傾き
+
+
+```{r}
+#| fig-cap: "複数の回帰直線を描いた"
+plot_t <- ggplot(trans, aes(x = pop_bon, y = gdp)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = 11.371, slope = 0.091,
+              linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 0.102) + 
+  geom_abline(intercept = -11.372, slope = 0.113,
+              linetype = "dotted")+
+  ylim(-20,20) +
+  labs(x = "労働者の割合(%)", y = "県内総生産額(百億円)") +
+  geom_text(label = "(人口密度：平均 - 10標準偏差)", 
+            x = 2, y = -9, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 10標準偏差)", 
+            x = 2, y = 10, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 2, y = -2, family = my_font)
+plot(plot_t)
+```
+
+
+
+
+```{r}
+sd <- 0.7229681
+
+15.184 * -sd
+
+38.752 - 6.779 * -sd
+```
+
+| 平均-標準偏差      | 平均      | 平均+標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $-10.978$ | $0$ | $10.978$ |
+| $43.653$ | $38.752$ | $33.851$ |
+
+
+: model_4の切片と傾き
+
+```{r}
+#| fig-cap: "複数の回帰直線を描いた"
+plot_t <- ggplot(trans, aes(x = ration_rec, y = gdp)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = 10.978, slope = 33.851,
+              linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 38.752) + 
+  geom_abline(intercept = -10.978, slope = 43.653,
+              linetype = "dotted")+
+  ylim(-20,20) +
+  labs(x = "従属人口指数の逆数", y = "県内総生産額(百億円)") +
+  geom_text(label = "(人口密度：平均 - 10標準偏差)", 
+            x = 0.0025, y = -12, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 10標準偏差)", 
+            x = 0.0025, y = 9, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 0.0025, y = -2, family = my_font)
+plot(plot_t)
+```
+
+
+
+
+## 解釈
+
+人口密度が高かろうが低かろうが，若年層が経済に与える影響は大きくない．人口密度が高いことの方が重要である．
+
+
+
+
+
+
+
+# test
+
+- 限界効果
+
+
+
+```{r}
+#model_1
+beta_1 <- t(data.frame(rep(tidy(model_1)[1,2],100)))
+
+beta_3 <- t(data.frame(rep(tidy(model_1)[3,2],100)))
+
+values_X_2 <- data.frame(seq(min(trans$pop_dens), max(trans$pop_dens), length.out = 100))
+
+
+df <- cbind(beta_1 ,beta_3,values_X_2)
+
+  df <- df|> 
+    rename(values_X_2 = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.) |> 
+  mutate(marginal = beta_1 + beta_3 * values_X_2 )
+
+
+
+values_var1 <- data.frame(seq(min(trans$pop_bon), 
+                              max(trans$pop_bon), 
+                              length.out = 100))
+values_var2 <- data.frame(seq(min(trans$pop_dens), 
+                              max(trans$pop_dens),
+                              length.out = 100))
+values_var3 <- data.frame(seq(min(trans$pop_bon_X_pop_dens),
+                             max(trans$pop_bon_X_pop_dens),
+                             length.out = 100))
+
+new_data <- cbind(values_var1,values_var2,values_var3)
+
+new_data <- new_data |> 
+  rename(pop_bon = seq.min.trans.pop_bon...max.trans.pop_bon...length.out...100.,
+         pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,
+         pop_bon_X_pop_dens = seq.min.trans.pop_bon_X_pop_dens...max.trans.pop_bon_X_pop_dens...)
+
+
+predictions <- predict(model_1,newdata = new_data, se.fit = TRUE)
+
+  critical_value <- (qnorm(0.05/ 2, lower.tail = FALSE))
+  df <- df |> 
+    mutate(upper_conf = marginal + critical_value * predictions$se.fit,
+           lower_conf = marginal - critical_value * predictions$se.fit) |> 
+    cbind(values_var2) |> 
+    rename(pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,)
+```
+
+
+```{r}
+#model_1
+ggplot(df, aes(x = pop_dens, y = marginal)) +
+  geom_line(color = "blue") +  
+  geom_ribbon(aes(ymin = lower_conf, ymax = upper_conf), 
+              fill = "lightblue", alpha = 0.5) + 
+  labs(x = "pop_bon", y = "model_1の限界効果")
+```
+
+
+
+
+
+
+```{r}
+#model_2
+beta_1 <- t(data.frame(rep(tidy(model_2)[1,2],100)))
+
+beta_3 <- t(data.frame(rep(tidy(model_2)[3,2],100)))
+
+values_X_2 <- data.frame(seq(min(trans$pop_dens), max(trans$pop_dens), length.out = 100))
+
+
+df <- cbind(beta_1 ,beta_3,values_X_2)
+
+  df <- df|> 
+    rename(values_X_2 = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.) |> 
+  mutate(marginal = beta_1 + beta_3 * values_X_2 )
+
+
+
+values_var1 <- data.frame(seq(min(trans$ration_rec), 
+                              max(trans$ration_rec), 
+                              length.out = 100))
+values_var2 <- data.frame(seq(min(trans$pop_dens), 
+                              max(trans$pop_dens),
+                              length.out = 100))
+values_var3 <- data.frame(seq(min(trans$ration_rec_X_pop_dens),
+                             max(trans$ration_rec_X_pop_dens),
+                             length.out = 100))
+
+new_data <- cbind(values_var1,values_var2,values_var3)
+
+new_data <- new_data |> 
+  rename(ration_rec = seq.min.trans.ration_rec...max.trans.ration_rec...length.out...100.,
+         pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,
+         ration_rec_X_pop_dens = seq.min.trans.ration_rec_X_pop_dens...max.trans.ration_rec_X_pop_dens...)
+
+
+predictions <- predict(model_2,newdata = new_data, se.fit = TRUE)
+
+  critical_value <- (qnorm(0.05/ 2, lower.tail = FALSE))
+  df <- df |> 
+    mutate(upper_conf = marginal + critical_value * predictions$se.fit,
+           lower_conf = marginal - critical_value * predictions$se.fit) |> 
+    cbind(values_var2) |> 
+    rename(pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,)
+```
+
+
+```{r}
+#model_2
+ggplot(df, aes(x = pop_dens, y = marginal)) +
+  geom_line(color = "blue") +  
+  geom_ribbon(aes(ymin = lower_conf, ymax = upper_conf), 
+              fill = "lightblue", alpha = 0.5) + 
+  labs(x = "pop_bon", y = "model_2の限界効果")
+```
+
+
+
+
+
+
+```{r}
+#model_3
+beta_1 <- t(data.frame(rep(tidy(model_3)[1,2],100)))
+
+beta_3 <- t(data.frame(rep(tidy(model_3)[3,2],100)))
+
+values_X_2 <- data.frame(seq(min(trans$pop_dens), max(trans$pop_dens), length.out = 100))
+
+
+df <- cbind(beta_1 ,beta_3,values_X_2)
+
+  df <- df|> 
+    rename(values_X_2 = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.) |> 
+  mutate(marginal = beta_1 + beta_3 * values_X_2 )
+
+
+
+values_var1 <- data.frame(seq(min(trans$pop_bon), 
+                              max(trans$pop_bon), 
+                              length.out = 100))
+values_var2 <- data.frame(seq(min(trans$pop_dens), 
+                              max(trans$pop_dens),
+                              length.out = 100))
+values_var3 <- data.frame(seq(min(trans$pop_bon_X_pop_dens),
+                             max(trans$pop_bon_X_pop_dens),
+                             length.out = 100))
+
+new_data <- cbind(values_var1,values_var2,values_var3)
+
+new_data <- new_data |> 
+  rename(pop_bon = seq.min.trans.pop_bon...max.trans.pop_bon...length.out...100.,
+         pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,
+         pop_bon_X_pop_dens = seq.min.trans.pop_bon_X_pop_dens...max.trans.pop_bon_X_pop_dens...)
+
+
+predictions <- predict(model_3,newdata = new_data, se.fit = TRUE)
+
+  critical_value <- (qnorm(0.05/ 2, lower.tail = FALSE))
+  df <- df |> 
+    mutate(upper_conf = marginal + critical_value * predictions$se.fit,
+           lower_conf = marginal - critical_value * predictions$se.fit) |> 
+    cbind(values_var2) |> 
+    rename(pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,)
+```
+
+
+```{r}
+#model_3
+ggplot(df, aes(x = pop_dens, y = marginal)) +
+  geom_line(color = "blue") +  
+  geom_ribbon(aes(ymin = lower_conf, ymax = upper_conf), 
+              fill = "lightblue", alpha = 0.5) + 
+  labs(x = "pop_bon", y = "model_3の限界効果")
+```
+
+
+
+
+
+
+```{r}
+#model_4
+beta_1 <- t(data.frame(rep(tidy(model_4)[1,2],100)))
+
+beta_3 <- t(data.frame(rep(tidy(model_4)[3,2],100)))
+
+values_X_2 <- data.frame(seq(min(trans$pop_dens), max(trans$pop_dens), length.out = 100))
+
+
+df <- cbind(beta_1 ,beta_3,values_X_2)
+
+  df <- df|> 
+    rename(values_X_2 = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.) |> 
+  mutate(marginal = beta_1 + beta_3 * values_X_2 )
+
+
+
+values_var1 <- data.frame(seq(min(trans$ration_rec), 
+                              max(trans$ration_rec), 
+                              length.out = 100))
+values_var2 <- data.frame(seq(min(trans$pop_dens), 
+                              max(trans$pop_dens),
+                              length.out = 100))
+values_var3 <- data.frame(seq(min(trans$ration_rec_X_pop_dens),
+                             max(trans$ration_rec_X_pop_dens),
+                             length.out = 100))
+
+new_data <- cbind(values_var1,values_var2,values_var3)
+
+new_data <- new_data |> 
+  rename(ration_rec = seq.min.trans.ration_rec...max.trans.ration_rec...length.out...100.,
+         pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,
+         ration_rec_X_pop_dens = seq.min.trans.ration_rec_X_pop_dens...max.trans.ration_rec_X_pop_dens...)
+
+
+predictions <- predict(model_4,newdata = new_data, se.fit = TRUE)
+
+  critical_value <- (qnorm(0.05/ 2, lower.tail = FALSE))
+  df <- df |> 
+    mutate(upper_conf = marginal + critical_value * predictions$se.fit,
+           lower_conf = marginal - critical_value * predictions$se.fit) |> 
+    cbind(values_var2) |> 
+    rename(pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,)
+```
+
+
+```{r}
+#model_4
+ggplot(df, aes(x = pop_dens, y = marginal)) +
+  geom_line(color = "blue") +  
+  geom_ribbon(aes(ymin = lower_conf, ymax = upper_conf), 
+              fill = "lightblue", alpha = 0.5) + 
+  labs(x = "pop_bon", y = "model_4の限界効果")
+```
+
+
+
+

@@ -1,0 +1,924 @@
+---
+title: "人口動態と経済成長"
+author: "平山 萌香　　宇畑 優太　　馬本 拓実　　勝原 大起　　西 来輝"
+subtitle: "高知工科大学 経済・マネジメント学群"
+date: today
+execute: 
+  echo: false
+  warning: false
+  message: false
+  result: false
+  include: false
+format: 
+  pdf:
+    fig-width: 5
+    fig-height: 3
+    number-sections: true
+    include-in-header:
+      - text: \setlength{\parindent}{1em}
+pdf-engine: lualatex
+documentclass: ltjsarticle 
+lang: ja
+---
+
+
+
+```{r global_option}
+#| include: false
+## PDF に出力する際は cairo を使用する
+if (knitr::is_latex_output()) {
+  knitr::opts_chunk$set(dev = "cairo_pdf")
+}
+```
+
+
+```{r}
+#| echo: false
+#| message: false
+pacman::p_load(tidyverse, 
+               broom, 
+               coefplot, 
+               texreg,
+               interplot,
+               dplyr,
+               magrittr,
+               plm,
+               readxl,
+               summarytools)
+## 図のなかで日本語を使えるようにする
+## 大学PCを利用：Windows を想定
+## フォントの設定はお好みで
+## （Unix/Linux ではIPAexフォントのインストールが必要かも）
+if (.Platform$OS.type == "windows") { 
+  if (require(fontregisterer)) {
+    my_font <- "Yu Gothic"
+  } else {
+    my_font <- "Japan1"
+  }
+} else if (capabilities("aqua")) {
+  my_font <- "HiraginoSans-W3"
+} else {
+  my_font <- "IPAexGothic"
+}
+
+theme_set(theme_gray(base_size = 9,
+                     base_family = my_font))
+```
+
+
+```{r}
+#dir.create("data")
+```
+
+
+
+
+
+
+# 研究テーマと目的
+
+研究テーマは、労働者数と経済成長である。リサーチクエスチョンは「少子高齢化が進む日本社会で、経済成長を続けるにはどうすれば良いのか」である。
+日本は今後さらに高齢化が進み、労働の担い手となる現役世代の割合が大きく減少することが予想される。その対応策として、市民を街の中心に集めることで、都市の発展を目指すコンパクトシティ構想が提唱され、一部の地域で実施されている。そこで、実際にこの政策が経済の発展にどのくらい寄与するのかをデータ分析により明らかにし、日本の高齢化社会とコンパクトシティ構想の行末を考慮し、今後の日本が行うべき政策の議論に貢献することを目指す。
+
+
+# 研究の方法と手順
+
+研究テーマに対する理論仮説は「労働者の割合が経済に与える影響は、人口密度によって変化する」である。戦後日本が成長できた理由の一つとして、総人口に占める労働人口の割合が多かったことが挙げられる(人口ボーナス)。労働人口が多ければ多いほど、労働者の所得はそのまま消費に回され、消費に使われたお金はまた誰かの所得につながるという好循環が発生し、経済の成長を促す。これに対し、労働者の割合が少なければ、労働者の所得がそのまま消費に回されるのではなく、社会保障費等に使用されることで、消費が減少し、経済の発展を阻害する。経済が発展している都道府県として東京、大阪、福岡、名古屋などが挙げられる。このような大都市は人口密度が高いという共通点があり、世界に目を向けても、大都市と呼ばれる場所は人口密度が高い。以上のことから、総人口に占める労働人口の割合が経済に与える影響は、人口密度によって変化するのではないかと考える。
+
+今回の分析では1つの作業仮説を対象にする。「可住面積当たりの人口密度は、労働者の割合が一人当たり所得に与える影響を変化させる。」である。人が密集しているかの尺度には可住面積あたりの人口密度を使う。一般的には、人口密度は人数/面積で求められることが多いが、今回は可住面積で割った。ただの面積で人口密度を計算した場合、当然ではあるが、面積と人口が等しい場合は同じ値になる。つまり、人が1箇所に集まっている状態と、平野に均等に散らばっている状態でも、同じ値で出てしまう。これは現実を正確に反映しているとは言い難い。労働者の割合を表す尺度には、従属人口指数の逆数を用いる。従属人口指数は、働き手である生産年齢人口100人が働き手でない年少者(0歳から14歳)と高齢者(65歳以上)を何人支えているかを表す。従属人口指数の逆数が高ければ、生産年齢人口が子供や高齢者に比べて相対的に多いことを示し、低ければ、相対的に少ないことを示すので、労働者の割合を示す変数として用いる。経済の発展度合いを表す尺度として一人当たり所得を使う。一人当たりの所得が大きいということは個々人が豊かであることの証であり、一人一人に経済的な余裕がおるのならば、それも経済が発展していると言えるのではないかと考える。
+
+## 統計モデル
+
+今回の分析では、線形回帰モデルを用いた回帰分析を行う。推定する回帰モデルは以下の通りである。また、47都道府県について複数時点にわたって観測されたデータ(パネルデータ)を用いる。パネルデータを用いることで欠落変数バイアスを避けることができる。
+都道府県効果 ( $\alpha$ )、時間効果 ( $\lambda_t$ )、および交差項を含むモデルは、次のように表現できる
+
+$$
+Y_{it} = \beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it} 
+$$
+
+ここで,
+
+-	 $Y_{it}$  は個体  i  の時点  t  における応答変数.
+
+-	 $X_{it}$  と  $Z_{it}$  は説明変数.
+
+-	 $(X_{it} \times Z_{it})$  は交差項.
+
+-	 $\alpha_i$  は都道府県効果.
+
+-	 $\lambda_t$  は時間効果.
+
+-	 $u_{it}$  は誤差項.
+
+
+また,
+
+- $Y_{it}$は経済状況を表す変数
+
+- $X_{it}$は労働者の割合を表す変数
+
+- $Z_{it}$は人口密度を表す変数
+
+
+また、時間効果として考えられるものは，景気の変動である．所得は国の経済政策の効果に依存することは容易に想像できる．また，国が行う政策で特定の地域が優遇されるということも考えにくい．
+
+都道府県効果として考えられるものは，各都道府県の自治体が実施する経済政策や産業構造である。
+
+都道府県効果と時間効果を除去するための変数変換は以下の通りである。
+$$
+\begin{aligned}
+\dot{Y}_{it} =& Y_{it} -\bar{Y_{i}} - \bar{Y_{t}} + \bar{Y} \\
+&\ \\
+=& [\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}]\\ 
+&- \frac{1}{T}\sum_{t = 1}^{T}[\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}] \\
+&- \frac{1}{N}\sum_{i = 1}^{N}[\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}]\\
+&+ \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N}[\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it}] \\
+&\ \\
+=& [\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it} ] \\ 
+&- [\beta_1 \frac{1}{T}\sum_{t = 1}^{T}X_{it} + \beta_2 \frac{1}{T}\sum_{t = 1}^{T}Z_{it} + \beta_3 \frac{1}{T}\sum_{t = 1}^{T}(X_{it} \times Z_{it}) + \frac{1}{T}\sum_{t = 1}^{T}\alpha_i + \frac{1}{T}\sum_{t = 1}^{T}\lambda_t + \frac{1}{T}\sum_{t = 1}^{T}u_{it} ] \\
+&- [\beta_1 \frac{1}{N}\sum_{i = 1}^{N} X_{it} + \beta_2 \frac{1}{N}\sum_{i = 1}^{N} Z_{it} + \beta_3 \frac{1}{N}\sum_{i = 1}^{N} (X_{it} \times Z_{it}) +  \frac{1}{N}\sum_{i = 1}^{N} \alpha_i + \frac{1}{N}\sum_{i = 1}^{N} \lambda_t + \frac{1}{N}\sum_{i = 1}^{N} u_{it} ] \\
+&+ [\beta_1 \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} X_{it} + \beta_2 \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} Z_{it} + \beta_3 \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} (X_{it} \times Z_{it}) \\
+&\ \ \ \ + \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} \alpha_i + \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} \lambda_t + \frac{1}{TN}\sum_{t = 1}^{T} \sum_{i = 1}^{N} u_{it} ] \\
+&\ \\
+=& [\beta_1 X_{it} + \beta_2 Z_{it} + \beta_3 (X_{it} \times Z_{it}) + \alpha_i + \lambda_t + u_{it} ]\\ 
+&- [\beta_1 \bar{X_{i}} + \beta_2 \bar{Z_{i}} + \beta_3 \overline{(X_{i} \times Z_{i})} + \alpha_i + \bar{\lambda} + \bar{u_{i}}]\\
+&- [\beta_1 \bar{X_{t}} + \beta_2 \bar{Z_{t}} + \beta_3 \overline{(X_{t} \times Z_{t})} + \bar{\alpha} + \lambda_t + \bar{u_{t}} ] \\
+&+ [\beta_1 \bar{X} + \beta_2 \bar{Z} + \beta_3 \overline{(X \times Z)} + \bar{\alpha} + \bar{\lambda} + \bar{u}] \\
+&\ \\
+=&  \beta_1[X_{it} -  \bar{X_{i}} - \bar{X_{t}} +  \bar{X}]\\
+&+ \beta_2[Z_{it} - \bar{Z_{i}} - \bar{Z_{t}} +  \bar{Z}]\\
+& + \beta_3[(X_{it} \times Z_{it}) - \overline{(X_{i} \times Z_{i})} - \overline{(X_{t} \times Z_{r})} + \overline{(X \times Z)}]\\ 
+& + [\alpha_i - \alpha_i - \bar{\alpha} +  \bar{\alpha}] \\
+& + [\lambda_t - \bar{\lambda} - \lambda_t + \bar{\lambda}] \\
+& + [u_{it} - \bar{u_{i}} - \bar{u_{t}} +  \bar{u}]\\
+&\ \\
+=& \beta_1\dot{X}_{it} +  \beta_2\dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}\\
+\end{aligned}
+$$
+Yは一人当たり所得、Xは労働者の割合、Zは人口密度とする。みてわかるように、これは調整変数Z（人口密度）を含む重回帰式であり、YをXとZとXZに回帰する。危険率は5%とする。
+
+分析では上記の回帰モデルをもとに1つのモデルを考える。
+
+
+
+- 統計モデル
+
+$\dot{Y}_{it} = \beta_1 \dot{X}_{it} + \beta_2 \dot{Z}_{it} + \beta_3 \dot{(X_{it} \times Z_{it})} + \dot{u}_{it}$ 
+
+- ただし，$Y_{it}$は一人当たり所得，$X_{it}$は従属人口指数の逆数，$Z_{it}$は人口密度である
+
+
+
+
+
+
+```{r}
+data_pop_density <- read.csv("data/X/FEH_00200502_240810184536.csv",
+                             fileEncoding="cp932")
+
+data_pop_density_tidy <- data_pop_density|> 
+  dplyr::select(統計名.,X,X.8,X.30) |> 
+  dplyr::rename(year = 統計名.,
+                area = X,
+                pop_dens = X.8,
+                dependency_ratio = X.30) |> 
+  subset(area!=0) |> 
+  dplyr::slice(-1:-998) |> 
+  dplyr::slice(-1176:-1269)
+```
+
+
+```{r}
+df1996 <- read_excel("data/X/1996.xls") |> 
+  dplyr::select(!c(...6,...12)) |> 
+  na.omit() |> 
+  dplyr::slice(-1) |> 
+  set_colnames(value = c("","total_pop","","product_pop")) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+
+
+
+```{r}
+df1997 <- read_excel("data/X/1997.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("","","total_pop","","product_pop","")) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+df1998 <- read_excel("data/X/1998.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("","","total_pop","","product_pop")) |> 
+  dplyr::select("total_pop","product_pop",)
+```
+
+
+```{r}
+df1999 <- read_excel("data/X/1999.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+df2000 <- read_excel("data/X/2000.xlsx")|> 
+  dplyr::select(...6,c(...10:...19)) |> 
+  na.omit() |> 
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  mutate(across(a:j,as.numeric)) |> 
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+df2001 <- read_excel("data/X/2001.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  dplyr::select("total_pop","product_pop")
+```
+
+```{r}
+df2002 <- read_excel("data/X/2002.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  dplyr::select("total_pop","product_pop")
+```
+
+```{r}
+df2003 <- read_excel("data/X/2001.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  dplyr::select("total_pop","product_pop")
+```
+
+```{r}
+df2004 <- read_excel("data/X/2001.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  dplyr::select("total_pop","product_pop")
+```
+
+
+
+
+
+
+```{r}
+df2005 <- read_excel("data/X/2000.xlsx")|> 
+  dplyr::select(...6,c(...10:...19)) |> 
+  na.omit() |> 
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  mutate(across(a:j,as.numeric)) |> 
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+
+```{r}
+df2006 <- read_excel("data/X/2001.xls") |> 
+  na.omit() |> 
+  set_colnames(value = c("NA" , "NA" ,"total_pop", "NA" ,"product_pop"))|>
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+df2007 <- read_excel("data/X/2007.xlsx") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+```{r}
+df2008 <- read_excel("data/X/2008.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+df2009 <- read_excel("data/X/2009.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+df2010 <- read_excel("data/X/2000.xlsx")|> 
+  dplyr::select(...6,c(...10:...19)) |> 
+  na.omit() |> 
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  mutate(across(a:j,as.numeric)) |> 
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+df2011 <- read_excel("data/X/2011.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+df2012 <- read_excel("data/X/2012.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+df2013 <- read_excel("data/X/2013.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+```{r}
+df2014 <- read_excel("data/X/2014.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-19)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+```{r}
+df2015 <- read_excel("data/X/2000.xlsx")|> 
+  dplyr::select(...6,c(...10:...19)) |> 
+  na.omit() |> 
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |> 
+  mutate(across(a:j,as.numeric)) |> 
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+```{r}
+df2016 <- read_excel("data/X/2016.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+```{r}
+df2017 <- read_excel("data/X/2017.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+
+```{r}
+df2018 <- read_excel("data/X/2018.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+
+```{r}
+df2019 <- read_excel("data/X/2019.xls") |> 
+  dplyr::select("1","3") |> 
+  dplyr::slice(c(-1:-22),c(-48:-117)) |> 
+  set_colnames(value = c("total_pop","product_pop"))
+```
+
+
+
+
+
+```{r}
+df2020 <- read_excel("data/X/2000.xlsx")|> 
+  dplyr::select(...6,c(...10:...19)) |> 
+  na.omit() |> 
+  dplyr::slice(c(-1:-2),c(-50:-147)) |> 
+  set_colnames(value = c("total_pop","a","b","c","d","e","f","g","h","i","j")) |>
+  mutate(across(a:j,as.numeric)) |> 
+  mutate(product_pop = rowSums(across(a:j,~.))) |> 
+  dplyr::select("total_pop","product_pop")
+```
+
+
+
+
+```{r}
+df <- rbind(
+  df1996,df1997,df1998,df1999,df2000,
+  df2001,df2002,df2003,df2004,df2005,
+  df2006,df2007,df2008,df2009,df2010,
+  df2011,df2012,df2013,df2014,df2015,
+  df2016,df2017,df2018,df2019,df2020)
+```
+
+
+
+```{r}
+data_X<- cbind(data_pop_density_tidy,df)
+```
+
+
+
+```{r}
+df_income_1 <- read_excel("data/Y/one_income_1.xlsx")
+
+df_gdp_1 <- read_excel("data/Y/total_gdp_1.xlsx")
+
+df_income_1 <- df_income_1 |> 
+  dplyr::slice(c(-1:-5),c(-53:-78)) |> 
+  set_colnames(c("","","","2011","2012","2013","2014","2015","2016","2017",
+                 "2018","2019","2020"))
+
+
+df_gdp_1 <- df_gdp_1 |> 
+  dplyr::slice(c(-1:-5),c(-53:-78)) |> 
+  set_colnames(c("","","","2011","2012","2013","2014","2015","2016","2017",
+                 "2018","2019","2020"))
+
+y2020 <- cbind(df_income_1$"2020",df_gdp_1$"2020")
+y2019 <- cbind(df_income_1$"2019",df_gdp_1$"2019")
+y2018 <- cbind(df_income_1$"2018",df_gdp_1$"2018")
+y2017 <- cbind(df_income_1$"2017",df_gdp_1$"2017")
+y2016 <- cbind(df_income_1$"2016",df_gdp_1$"2016")
+y2015 <- cbind(df_income_1$"2015",df_gdp_1$"2015")
+y2014 <- cbind(df_income_1$"2014",df_gdp_1$"2014")
+y2013 <- cbind(df_income_1$"2013",df_gdp_1$"2013")
+y2012 <- cbind(df_income_1$"2012",df_gdp_1$"2012")
+y2011 <- cbind(df_income_1$"2011",df_gdp_1$"2011")
+
+```
+
+```{r}
+df_income_2 <- read_excel("data/Y/one_income_2.xlsx")
+
+df_gdp_2 <- read_excel("data/Y/total_gdp_2.xlsx")
+
+df_income_2 <- df_income_2 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79)) |> 
+  set_colnames(c("","","","2006","2007","2008","2009","2010","2011","2012",
+                 "2013","2014","2015","2016","2017","2018"))
+
+df_gdp_2 <- df_gdp_2 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79)) |> 
+  set_colnames(c("","","","2006","2007","2008","2009","2010","2011","2012",
+                 "2013","2014","2015","2016","2017","2018"))
+
+y2010 <- cbind(df_income_2$"2010",df_gdp_2$"2010")
+y2009 <- cbind(df_income_2$"2009",df_gdp_2$"2009")
+y2008 <- cbind(df_income_2$"2008",df_gdp_2$"2008")
+y2007 <- cbind(df_income_2$"2007",df_gdp_2$"2007")
+y2006 <- cbind(df_income_2$"2006",df_gdp_2$"2006")
+
+```
+
+
+```{r}
+df_income_3 <- read_excel("data/Y/one_income_3.xls")
+
+df_gdp_3 <- read_excel("data/Y/total_gdp_3.xls")
+
+df_income_3 <- df_income_3 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79))|> 
+  set_colnames(c("","","","2001","2002","2003","2004","2005","2006","2007",
+                 "2008","2009","2010","2011","2012","2013","2014"))
+
+df_gdp_3 <- df_gdp_3 |> 
+  dplyr::slice(c(-1:-5),c(-53:-79))|> 
+  set_colnames(c("","","","2001","2002","2003","2004","2005","2006","2007",
+                 "2008","2009","2010","2011","2012","2013","2014"))
+
+y2005 <- cbind(df_income_3$"2005",df_gdp_3$"2005")
+y2004 <- cbind(df_income_3$"2004",df_gdp_3$"2004")
+y2003 <- cbind(df_income_3$"2003",df_gdp_3$"2003")
+y2002 <- cbind(df_income_3$"2002",df_gdp_3$"2002")
+y2001 <- cbind(df_income_3$"2001",df_gdp_3$"2001")
+
+```
+
+
+```{r}
+df_income_4 <- read_excel("data/Y/one_income_4.xls")
+
+df_gdp_4 <- read_excel("data/Y/total_gdp_4.xls")
+
+df_income_4 <- df_income_4 |> 
+  dplyr::slice(c(-1:-5),c(-53:-75))|> 
+  set_colnames(c("","","","1996","1997","1998","1999","2000","2001","2002",
+                 "2003","2004","2005","2006","2007","2008","2009"))
+
+
+df_gdp_4 <- df_gdp_4 |> 
+  dplyr::slice(c(-1:-5),c(-53:-75))|> 
+  set_colnames(c("","","","1996","1997","1998","1999","2000","2001","2002",
+                 "2003","2004","2005","2006","2007","2008","2009"))
+
+y2000 <- cbind(df_income_4$"2000",df_gdp_4$"2000")
+y1999 <- cbind(df_income_4$"1999",df_gdp_4$"1999")
+y1998 <- cbind(df_income_4$"1998",df_gdp_4$"1998")
+y1997 <- cbind(df_income_4$"1997",df_gdp_4$"1997")
+y1996 <- cbind(df_income_4$"1996",df_gdp_4$"1996")
+```
+
+
+```{r}
+data_y <- rbind(
+  y1996,y1997,y1998,y1999,y2000,
+  y2001,y2002,y2003,y2004,y2005,
+  y2006,y2007,y2008,y2009,y2010,
+  y2011,y2012,y2013,y2014,y2015,
+  y2016,y2017,y2018,y2019,y2020)
+
+data_y <- data.frame(data_y) |> 
+  rename(income = X1,
+         gdp = X2)
+```
+
+
+# データセットの加工
+
+## 単位の確認
+
+```{r}
+data <- cbind(data_X,data_y) |> 
+  mutate(across(year:gdp,~gsub(",","",.))) |> 
+  mutate(across(year:gdp,as.numeric)) |> 
+  mutate(pop_bon = product_pop/total_pop * 100,
+         ration_rec = 1/(dependency_ratio))
+```
+
+- 分析で使用する変数の詳細を掲載する
+
+|変数|説明|単位|出典|
+|---|---|---|---|
+|year|調査された年|一年|
+|area|調査対象の場所|都道府県|
+|pop_dens|可住地面積１km2当たり人口密度|人/km^2|SSDSD-Eおよび総務省統計局社会生活統計指標|
+|dependency_ratio|従属人口指数|(%)|SSDSD-Eおよび総務省統計局社会・人口統計体系 / 都道府県データ / 社会生活統計指標|
+|income|各年，各都道府県の一人当たり所得|千円|SSDSE-Eおよび内閣府県民経済計算|
+|ratio_rec|従属人口指数の逆数|なし|
+
+: 変数の詳細
+
+所得は正式系列のものを採用している[^seisiki]
+
+[^seisiki]:詳細は内閣府の県民経済計算の[利用場の注意](https://www.esri.cao.go.jp/jp/sna/sonota/kenmin/kenmin_top.html)を参照
+
+- 変数の記述統計量
+
+```{r}
+#| include: true
+data_frame <- data |> 
+  dplyr::select(year,area,pop_dens,dependency_ratio,income,ration_rec)
+descr(data_frame, stats = c("n.valid", "mean", "sd", "min", "q1", "med", "q3", "max"))
+```
+
+pop_dens，incomeの値が他の変数に比べて大きすぎる．分析結果の解釈をしやすくするために，単位変換を行う．また，yearとareaの値の後ろに0が余計についていたため，取り除く．
+
+
+- 単位変換後の単位の確認
+
+
+|変数|説明|単位|
+|---|---|---|
+|year|調査された年|一年|
+|area|調査対象の場所|都道府県|
+|pop_dens|可住地面積１km2当たり人口密度|千人|
+|dependency_ratio|従属人口指数|(%)|
+|income|各年，各都道府県の一人当たり所得|百万円|
+|ratio_rec|従属人口指数の逆数|なし|
+
+
+```{r}
+#| include: true
+data <- data |> 
+  mutate(gdp = gdp / 10^6,
+         income = income / 10^3,
+         pop_dens = pop_dens / 10^3,
+         year = (year / 10^6 )-0.1,
+         area = area / 10^3)
+```
+
+
+
+
+
+変数変換を行う前に、ratio_rec_X_pop_densという名前で交差項の変数を作っておく。
+
+- 変数変換は以下の手順で行う。
+
+    都道府県効果と時間効果を除去するためにすべての説明変数と応答変数の全平均、t時点の平均、観測個体iごとの平均をそれぞれ求める。
+  
+    求めた全平均、t時点の平均、観測個体iをdata_frameにまとめる。
+  
+    求めたそれぞれの平均値を都道府県効果と時間効果を除去するための前述モデルに当てはめ変数変換を行う。
+
+
+
+```{r}
+data <- data |> 
+  mutate(pop_bon_X_pop_dens = pop_bon * pop_dens,
+         ration_rec_X_pop_dens = ration_rec * pop_dens)
+```
+
+```{r}
+all_mean <- data.frame(t(colMeans(data)))
+```
+
+
+```{r}
+t_mean <- matrix(NA,nrow = 47,ncol = 12)
+for(i in 1:47){
+  a <- data |> 
+    filter(area == i)
+  t_mean[i,] <- t(colMeans(a))
+}
+t_mean <- t_mean |> 
+  set_colnames(value = c(names(data)))
+t_mean <- data.frame(t_mean)
+```
+
+
+```{r}
+i_mean <- matrix(NA,nrow = 25,ncol = 12)
+for(t in 1:25){
+  a <- data |> 
+    filter(year == t+1995)
+  i_mean[t,] <- t(colMeans(a))
+}
+i_mean <- i_mean |> 
+  set_colnames(value = c(names(data)))
+i_mean <- data.frame(i_mean)
+```
+
+
+
+```{r}
+trans <- data.frame(matrix(NA,nrow = 1175,ncol = 12))
+r <- 0
+for(t in 1:25){
+  for(i in 1:47){
+    a <- data |> 
+  filter(area == i,
+         year == t+1995)
+    
+    b <- t_mean |> 
+      filter(area == i)
+    
+    c <- i_mean |> 
+      filter(year == t+1995)
+    
+    d <- all_mean
+    
+    x <-  a - b - c + d
+   r <- r + 1
+   
+   trans[r,] <- x
+  }
+}
+trans <- trans |> 
+  set_colnames(value = names(data))
+```
+
+## 変数変換後の統計量の確認
+
+
+
+```{r}
+#| include: true
+data_set <- trans |> 
+  dplyr::select(pop_dens,dependency_ratio,income,ration_rec)
+descr(data_set, stats = c("n.valid", "mean", "sd", "min", "q1", "med", "q3", "max"))
+```
+
+
+
+
+
+# 分析の結果
+
+
+## 分析の実行
+
+lm関数を使って時間効果と都道府県効果と交差項を含んだ統計モデルの分析を行う
+
+
+分析結果は以下の通り
+```{r}
+#| include: true
+model_1 <- lm(income ~ 0 + ration_rec + pop_dens + ration_rec_X_pop_dens, data = trans)
+tidy(model_1)
+```
+今回のモデルは有意水準5%で統計的に有意である。よって、人口密度が平均値である1367(人/km^2)をとる場合、従属人口指数の逆数が1ポイント上昇すると一人当たり所得は、およそ3100万円増加する。
+
+
+
+
+
+
+
+
+
+
+
+## 結果の可視化
+
+
+- 係数を表示する
+
+@tbl-keisu
+は推定された係数の値を示している．
+
+```{r}
+#| results: 'asis'
+#| include: true
+res <- list(model_1)
+texreg(res,
+       stars = c(0.001, 0.01, 0.05),
+        digits = 3,
+       caption = "分析結果",
+       caption.above = TRUE,
+       label = "tbl-keisu",
+       custom.model.names = c("一人当たり所得(百万円)"), 
+       custom.coef.name = c("従属人口指数の逆数(%)",
+                             "人口密度(千人/km^2)",
+                             "従属人口指数の逆数 x 人口密度"),
+       custom.gof.names = c("R^2",
+                            "自由度決定済みR^2",
+                            "観測数"),
+       custom.note = "注:括弧内は標準偏差")
+```
+
+
+
+
+
+- 応答変数(一人当たり所得)の予測値を示す
+
+$$
+\begin{aligned}
+\text{統計モデル}&\ \\
+\hat{Y}_{it} &= 31.069{X}_{it} + 0.794{Z}_{it} + 3.911{(X_{it} 
+\cdot Z_{it})}\\
+&=0.794{Z}_{it} + (31.069 + 3.911{Z}_{it}){X}_{it}\\
+\end{aligned}
+$$
+
+
+調整変数が代表的な値を取るときの切片と傾きを示したものが
+@tbl-mdtable-m
+である．
+
+```{r}
+#調整変数の10標準偏差
+sd(trans$pop_dens) * 10
+```
+
+
+```{r}
+sd <- 0.7229681
+
+0.794 *-sd
+31.069 + 3.911 * -sd 
+31.069 + 3.911 * sd 
+
+
+
+```
+
+| 平均-10標準偏差      | 平均      | 平均+10標準偏差      |
+| :-----   | :-----:  | -----:   |
+| $-0.574$ | $0$ | $0.574$ |
+| $28.241$ | $31.069$ | $33.896$ |
+
+: model_1の切片と傾き {#tbl-mdtable-m}
+
+
+
+- 調整変数(人口密度)が代表的な値を取った時の、切片と傾きについて図示したものが @fig-plot-1 である。図および
+@tbl-mdtable-m
+から人口密度が「平均-10標準偏差」から「平均+10標準偏差」に増加していくごとに回帰直線の傾きはわずかに増加していることが読み取れる。一方、切片は人口密度が高くなるにつれて大きく変化している。
+
+```{r}
+#| label: fig-plot-1
+#| fig-cap: "複数の回帰直線を描いた"
+#| include: true
+#| fig-width: 5
+#| fig-height: 3
+plot_t <- ggplot(trans, aes(x = ration_rec, y = income)) +
+  geom_point(pch = 16) +
+  geom_abline(intercept = 0.574, slope = 33.896,
+              linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 31.069) + 
+  geom_abline(intercept = -0.574, slope = 28.241,
+              linetype = "dotted")+
+  ylim(-1,1) +
+  labs(x = "従属人口指数の逆数", y = "一人当たり所得(百万円)") +
+  geom_text(label = "(人口密度：平均 - 10標準偏差)", 
+            x = 0.002, y = -0.6, family = my_font) +
+  geom_text(label = "(人口密度：平均 + 10標準偏差)", 
+            x = 0.002, y = 0.8, family = my_font)+
+  geom_text(label = "(人口密度：平均)", 
+            x = 0.002, y = -0.1, family = my_font)
+plot(plot_t)
+```
+
+
+
+
+
+
+
+
+
+```{r}
+#model_2
+beta_1 <- t(data.frame(rep(tidy(model_1)[1,2],100)))
+beta_3 <- t(data.frame(rep(tidy(model_1)[3,2],100)))
+values_X_2 <- data.frame(seq(min(trans$pop_dens), max(trans$pop_dens), length.out = 100))
+df <- cbind(beta_1 ,beta_3,values_X_2)
+df <- df|>
+rename(values_X_2 = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.) |>
+mutate(marginal = beta_1 + beta_3 * values_X_2 )
+values_var1 <- data.frame(seq(min(trans$ration_rec),
+max(trans$ration_rec),
+length.out = 100))
+values_var2 <- data.frame(seq(min(trans$pop_dens),
+max(trans$pop_dens),
+length.out = 100))
+values_var3 <- data.frame(seq(min(trans$ration_rec_X_pop_dens),
+max(trans$ration_rec_X_pop_dens),
+length.out = 100))
+new_data <- cbind(values_var1,values_var2,values_var3)
+new_data <- new_data |>
+rename(ration_rec = seq.min.trans.ration_rec...max.trans.ration_rec...length.out...100.,
+pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,
+ration_rec_X_pop_dens = seq.min.trans.ration_rec_X_pop_dens...max.trans.ration_rec_X_pop_dens...)
+predictions <- predict(model_1,newdata = new_data, se.fit = TRUE)
+critical_value <- (qnorm(0.05/ 2, lower.tail = FALSE))
+df <- df |>
+mutate(upper_conf = marginal + critical_value * predictions$se.fit,
+lower_conf = marginal - critical_value * predictions$se.fit) |>
+cbind(values_var2) |>
+rename(pop_dens = seq.min.trans.pop_dens...max.trans.pop_dens...length.out...100.,)
+```
+
+
+
+
+
+
+- 従属人口指数の逆数が一人当たり所得にどれだけ影響するのかを人口密度ごとに示し、限界効果を示した
+@fig-plot-2 からわかるように今回の統計モデルでは、観測されたすべての人口密度の範囲で95%信頼区間が0より大きい範囲にある。したがって、従属人口指数が一人当たり所得に与える影響は人口密度に関わらず統計的に有意であることがわかる。人口密度が増加すると従属人口指数の逆数が一人当たり所得に与える影響は大きくなっていくことがわかる。
+
+
+```{r}
+#| fig-cap: "限界効果の可視化"
+#| include: true
+#| label: fig-plot-2
+#| fig-width: 5
+#| fig-height: 3
+ggplot(df, aes(x = pop_dens, y = marginal)) +
+  geom_line(color = "blue") +  
+  geom_ribbon(aes(ymin = lower_conf, ymax = upper_conf), 
+              fill = "lightblue", alpha = 0.5) + 
+  labs(x = "人口密度", y = "model_1の限界効果")
+
+```
+
+
+
+
+
+# 結果の解釈　
+
+分析結果より、従属人口指数の逆数が一人当たり所得に与える影響は、人口密度の増加によってプラス方向に増加していくことがわかった。これは、労働者の割合が経済成長に与える影響は、人口密度の増加によってプラス方向に変化することを示す。このことから、地方レベルでは中心街に、国レベルでは東京をはじめとする大都市に人を密集させることで、少子高齢化社会でも経済成長を実現できるのではないだろうかと考える。
+
+今回の分析では、回帰モデルを用いて、パネルデータ分析を行った。パネルデータ分析を行うことで、欠落変数バイアスを避けることに努めた。しかし、人口の集中による弊害等は考慮できていない。たとえば交通公害や災害への脆弱性。今後の課題としては、こうした弊害が経済に与える悪影響についての議論が必要である。
+
+
+
+
+
+
+
+
+
+
+
